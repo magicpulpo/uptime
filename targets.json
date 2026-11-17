@@ -1,0 +1,12 @@
+[
+  {
+    "id": "AUT-005",
+    "name": "magicpulpo.com (reliability sweep, crons, jobs, bookings)",
+    "url": "https://magicpulpo.com/api/health"
+  },
+  {
+    "id": "AUT-013",
+    "name": "Social publisher (mp-social)",
+    "url": "https://social.magicpulpo.com/api/health"
+  }
+]

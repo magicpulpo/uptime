@@ -1,0 +1,62 @@
+name: uptime
+
+# AUT-014: every 10 minutes (offset from the top of the hour, when GitHub is busiest),
+# check each health route in targets.json and alert Google Chat on down, every 6 h while down,
+# and on recovery. Kill switch: disable this workflow in the Actions tab.
+on:
+  schedule:
+    - cron: '3-59/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: Also post a test message to the AUT-014 thread in Chat
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write # restore and prune the state cache, keep the schedule enabled
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore who is down since when
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: state.json
+          key: uptime-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: uptime-state-
+
+      - name: Check health routes
+        run: node check.mjs
+        env:
+          CHAT_WEBHOOK: ${{ secrets.CHAT_WEBHOOK_UPTIME }}
+          TEST_ALERT: ${{ inputs.test_alert }}
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: state.json
+          key: uptime-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Prune old state, keep the schedule enabled
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Only the newest few state caches are needed.
+          gh cache list --repo "$GITHUB_REPOSITORY" --key uptime-state- --sort created_at --order desc --limit 100 --json id --jq '.[3:][].id' \
+            | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY"
+          # GitHub disables schedules in public repos after 60 days without activity; re-enabling resets that.
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/uptime.yml/enable" > /dev/null
